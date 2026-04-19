@@ -51,12 +51,12 @@ CLASS_INFO_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 MODEL_DIR = Path("model")
-MODEL_PATH = MODEL_DIR / "plant_disease_model.h5"
+MODEL_PATH = MODEL_DIR / "plant_disease_model_v2.keras"
 CLASS_INDICES_PATH = MODEL_DIR / "class_indices.json"
 
 # Google Drive direct-download URLs (uc?id=...) for Render / Docker cold starts
 GDRIVE_MODEL_URL = (
-    "https://drive.google.com/uc?id=16x-J6C6JCdXbFW0_d4TIJFmGltOumvZL"
+    "https://drive.google.com/uc?id=1u_c-ACX7lpowLPPXTpVuwEi2Dk63SCZ1"
 )
 GDRIVE_CLASS_INDICES_URL = (
     "https://drive.google.com/uc?id=1FZDgoLgLExfVkw_M4JoN_Y8YJn4NQFfz"
@@ -85,7 +85,7 @@ logger = logging.getLogger("plantcare")
 
 def download_from_gdrive() -> None:
     """
-    Ensure ``plant_disease_model.h5`` and ``class_indices.json`` exist under ``model/``.
+    Ensure ``plant_disease_model_v2.keras`` and ``class_indices.json`` exist under ``model/``.
 
     Uses ``gdown`` with the public ``/uc?id=`` links. Skips download when a file
     already exists (local dev with cached weights). Logs progress to stdout and
@@ -94,7 +94,7 @@ def download_from_gdrive() -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     targets: list[tuple[str, Path, str]] = [
-        (GDRIVE_MODEL_URL, MODEL_PATH, "plant_disease_model.h5"),
+        (GDRIVE_MODEL_URL, MODEL_PATH, "plant_disease_model_v2.keras"),
         (GDRIVE_CLASS_INDICES_URL, CLASS_INDICES_PATH, "class_indices.json"),
     ]
 
@@ -112,7 +112,7 @@ def download_from_gdrive() -> None:
         )
         try:
             # quiet=False shows tqdm-style progress in logs where supported
-            gdown.download(url, str(dest), quiet=False)
+            gdown.download(url, str(dest), quiet=False, fuzzy=True)
         except Exception:
             logger.exception("gdown failed while downloading %s", label)
             raise
