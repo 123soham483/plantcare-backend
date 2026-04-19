@@ -1,9 +1,9 @@
 """
 PlantCare AI — FastAPI backend for plant disease detection.
 
-Loads a TensorFlow MobileNetV2-based classifier (.h5) and serves predictions
-for educational / demonstration purposes. Always validate critical agronomic
-decisions with qualified experts and local extension services.
+Rebuilds a MobileNetV2 classifier head and loads only ``.weights.h5`` weights plus
+``class_indices.json`` to avoid Keras saved-model / ``quantization_config``
+compatibility issues across TensorFlow versions.
 """
 
 from __future__ import annotations
@@ -51,12 +51,12 @@ CLASS_INFO_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 MODEL_DIR = Path("model")
-MODEL_PATH = MODEL_DIR / "plant_disease_model_v2.keras"
+WEIGHTS_PATH = MODEL_DIR / "plant_disease_weights.weights.h5"
 CLASS_INDICES_PATH = MODEL_DIR / "class_indices.json"
 
 # Google Drive direct-download URLs (uc?id=...) for Render / Docker cold starts
-GDRIVE_MODEL_URL = (
-    "https://drive.google.com/uc?id=1u_c-ACX7lpowLPPXTpVuwEi2Dk63SCZ1"
+GDRIVE_WEIGHTS_URL = (
+    "https://drive.google.com/uc?id=1ZRnqK95iPqDDrUW7yVA9S-UFS-5f0Hd7"
 )
 GDRIVE_CLASS_INDICES_URL = (
     "https://drive.google.com/uc?id=1FZDgoLgLExfVkw_M4JoN_Y8YJn4NQFfz"
@@ -85,7 +85,7 @@ logger = logging.getLogger("plantcare")
 
 def download_from_gdrive() -> None:
     """
-    Ensure ``plant_disease_model_v2.keras`` and ``class_indices.json`` exist under ``model/``.
+    Ensure ``plant_disease_weights.weights.h5`` and ``class_indices.json`` exist under ``model/``.
 
     Uses ``gdown`` with the public ``/uc?id=`` links. Skips download when a file
     already exists (local dev with cached weights). Logs progress to stdout and
@@ -94,7 +94,7 @@ def download_from_gdrive() -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     targets: list[tuple[str, Path, str]] = [
-        (GDRIVE_MODEL_URL, MODEL_PATH, "plant_disease_model_v2.keras"),
+        (GDRIVE_WEIGHTS_URL, WEIGHTS_PATH, "plant_disease_weights.weights.h5"),
         (GDRIVE_CLASS_INDICES_URL, CLASS_INDICES_PATH, "class_indices.json"),
     ]
 
@@ -111,7 +111,6 @@ def download_from_gdrive() -> None:
             flush=True,
         )
         try:
-            # quiet=False shows tqdm-style progress in logs where supported
             gdown.download(url, str(dest), quiet=False, fuzzy=True)
         except Exception:
             logger.exception("gdown failed while downloading %s", label)
@@ -147,37 +146,52 @@ def _build_index_to_class(raw_indices: dict[str, Any]) -> dict[int, str]:
 
 def load_model_and_indices() -> tuple[tf.keras.Model, dict[int, str]]:
     """
-    Load the serialized Keras model and class index metadata from disk.
+    Rebuild the MobileNetV2 + head used during training, load weights only,
+    then load class index metadata from disk.
 
     Raises:
-        FileNotFoundError: if required files are missing.
+        FileNotFoundError: if weights or indices are missing.
         ValueError: if JSON structure is invalid.
-        Exception: propagates TensorFlow model load failures.
+        Exception: if weight shapes do not match the rebuilt graph.
     """
-    if not MODEL_PATH.is_file():
-        raise FileNotFoundError(f"Model file not found: {MODEL_PATH.resolve()}")
+    from tensorflow.keras.applications import MobileNetV2
+    from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D
+    from tensorflow.keras.models import Model
+
+    if not WEIGHTS_PATH.is_file():
+        raise FileNotFoundError(f"Weights not found: {WEIGHTS_PATH}")
     if not CLASS_INDICES_PATH.is_file():
-        raise FileNotFoundError(
-            f"Class indices file not found: {CLASS_INDICES_PATH.resolve()}"
-        )
+        raise FileNotFoundError(f"Class indices not found: {CLASS_INDICES_PATH}")
 
-    logger.info("Loading TensorFlow model from %s", MODEL_PATH)
+    # Rebuild exact MobileNetV2 architecture used during training
+    logger.info("Building MobileNetV2 architecture...")
+    base_model = MobileNetV2(
+        input_shape=(224, 224, 3),
+        include_top=False,
+        weights=None,
+    )
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(256, activation="relu")(x)
+    x = Dropout(0.4)(x)
+    output = Dense(38, activation="softmax")(x)
+    loaded = Model(inputs=base_model.input, outputs=output)
+
+    # Load trained weights only (avoids config compatibility issues)
+    logger.info("Loading weights from %s", WEIGHTS_PATH)
     try:
-        # compile=False skips recompilation and avoids failures on newer Keras
-        # when the saved config contains unknown keys (e.g. quantization_config).
-        loaded = tf.keras.models.load_model(
-            MODEL_PATH,
-            compile=False,
-        )
+        loaded.load_weights(str(WEIGHTS_PATH))
     except Exception:
-        logger.exception("TensorFlow failed to load model")
+        logger.exception("Failed to load weights into rebuilt model")
         raise
+    logger.info("Weights loaded successfully!")
 
+    # Load class indices
     logger.info("Loading class indices from %s", CLASS_INDICES_PATH)
     with CLASS_INDICES_PATH.open("r", encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
-        raise ValueError("class_indices.json must contain a JSON object")
+        raise ValueError("class_indices.json must be a JSON object")
 
     idx_map = _build_index_to_class(raw)
     expected = len(idx_map)
@@ -186,6 +200,7 @@ def load_model_and_indices() -> tuple[tf.keras.Model, dict[int, str]]:
             "Expected 38 classes for this project; found %s in class_indices.json",
             expected,
         )
+    logger.info("Model ready! Classes: %d", len(idx_map))
     return loaded, idx_map
 
 
