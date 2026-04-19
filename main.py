@@ -163,7 +163,12 @@ def load_model_and_indices() -> tuple[tf.keras.Model, dict[int, str]]:
 
     logger.info("Loading TensorFlow model from %s", MODEL_PATH)
     try:
-        loaded = tf.keras.models.load_model(MODEL_PATH)
+        # compile=False skips recompilation and avoids failures on newer Keras
+        # when the saved config contains unknown keys (e.g. quantization_config).
+        loaded = tf.keras.models.load_model(
+            MODEL_PATH,
+            compile=False,
+        )
     except Exception:
         logger.exception("TensorFlow failed to load model")
         raise
