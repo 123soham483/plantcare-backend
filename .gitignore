@@ -1,0 +1,19 @@
+# Large ML artifacts — never commit the trained model or local label files
+model/
+
+# JSON metadata only under model/ (redundant while model/ is ignored; keeps policy explicit)
+model/**/*.json
+
+# Keras / TensorFlow weights anywhere in the repository
+*.h5
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Environment variables (secrets)
+.env
+
+# Virtual environments (Windows + common names)
+venv/
+.venv/
