@@ -21,6 +21,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import tensorflow as tf
+import gdown
 
 from solutions import DISEASE_INFO
 
@@ -53,6 +54,14 @@ MODEL_DIR = Path("model")
 MODEL_PATH = MODEL_DIR / "plant_disease_model.h5"
 CLASS_INDICES_PATH = MODEL_DIR / "class_indices.json"
 
+# Google Drive direct-download URLs (uc?id=...) for Render / Docker cold starts
+GDRIVE_MODEL_URL = (
+    "https://drive.google.com/uc?id=16x-J6C6JCdXbFW0_d4TIJFmGltOumvZL"
+)
+GDRIVE_CLASS_INDICES_URL = (
+    "https://drive.google.com/uc?id=1FZDgoLgLExfVkw_M4JoN_Y8YJn4NQFfz"
+)
+
 # Accepted uploads for /predict (aligned with common mobile / web camera outputs)
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ALLOWED_CONTENT_TYPES = {
@@ -72,6 +81,50 @@ index_to_class: dict[int, str] = {}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("plantcare")
+
+
+def download_from_gdrive() -> None:
+    """
+    Ensure ``plant_disease_model.h5`` and ``class_indices.json`` exist under ``model/``.
+
+    Uses ``gdown`` with the public ``/uc?id=`` links. Skips download when a file
+    already exists (local dev with cached weights). Logs progress to stdout and
+    the application logger so platforms like Render capture output.
+    """
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    targets: list[tuple[str, Path, str]] = [
+        (GDRIVE_MODEL_URL, MODEL_PATH, "plant_disease_model.h5"),
+        (GDRIVE_CLASS_INDICES_URL, CLASS_INDICES_PATH, "class_indices.json"),
+    ]
+
+    for url, dest, label in targets:
+        if dest.is_file():
+            msg = f"Model artifact already present, skipping download: {label}"
+            logger.info(msg)
+            print(f"[PlantCare] {msg}", flush=True)
+            continue
+
+        logger.info("Downloading %s from Google Drive → %s", label, dest)
+        print(
+            f"[PlantCare] Downloading {label} from Google Drive (this may take several minutes)...",
+            flush=True,
+        )
+        try:
+            # quiet=False shows tqdm-style progress in logs where supported
+            gdown.download(url, str(dest), quiet=False)
+        except Exception:
+            logger.exception("gdown failed while downloading %s", label)
+            raise
+
+        if not dest.is_file():
+            raise RuntimeError(
+                f"Download finished but file is missing on disk: {dest.resolve()}"
+            )
+
+        done = f"Download complete: {label} → {dest}"
+        logger.info(done)
+        print(f"[PlantCare] {done}", flush=True)
 
 
 def _build_index_to_class(raw_indices: dict[str, Any]) -> dict[int, str]:
@@ -139,6 +192,7 @@ async def lifespan(app: FastAPI):
     """
     global model, index_to_class
     try:
+        download_from_gdrive()
         model, index_to_class = load_model_and_indices()
     except FileNotFoundError as fnf:
         logger.error("%s", fnf)

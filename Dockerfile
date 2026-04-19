@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Application source, disease knowledge base, and (at build time) any local model files
 COPY . .
 
+# Runtime downloads (gdown) write into model/; ensure directory exists if not in repo context
+RUN mkdir -p model
+
 EXPOSE 8000
 
 # Render injects PORT at runtime; default to 8000 for local docker run
