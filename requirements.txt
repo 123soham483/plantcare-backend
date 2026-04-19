@@ -3,6 +3,6 @@ uvicorn
 tensorflow
 pillow
 numpy
-opencv-python
+opencv-python-headless
 python-multipart
 gdown

@@ -7,10 +7,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System libraries commonly required by OpenCV wheels and TensorFlow runtime
+# System libraries for OpenCV (cv2) + TensorFlow on Debian slim.
+# libxcb1 fixes: ImportError: libxcb.so.1: cannot open shared object file
+# libgl1 replaces legacy libgl1-mesa-glx on Debian 12+ (Bookworm) slim images
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     libgomp1 \
+    libgtk-3-0 \
+    libgl1 \
+    libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
